@@ -1,0 +1,203 @@
+#include <stdlib.h>
+#define BLOCK_SIZE 8 /* 由于存在虚拟的data字段，sizeof不能正确计算meta长度，这里手工设置 */
+
+b_link block = NULL;
+
+typedef struct block_link *b_link;
+{
+    int block_size;
+    void *block;
+    b_link next;
+};
+
+typedef struct s_block *t_block;
+struct s_block {
+    t_block next; /* 指向下个块的指针 */
+    int padding;  /* 填充4字节，保证meta块长度为8的倍数 */
+};
+
+b_link init_blink(b_link block){
+    if (block == NULL)
+    {
+        b_link b;
+        b = (b_link)malloc(sizeof(block_link));
+        b->block_size = 16;
+        b->block = NULL;
+        b->next = NULL;
+        block = b;
+    }
+    while(block->size != size)
+    {
+        b_link b;
+        b = (b_link)malloc(sizeof(block_link));
+
+    }
+}
+
+/* First fit */
+t_block find_block(t_block last) {
+    t_block b = last;
+    printf("findblock->last->free:%d\n", last->free);
+    while(b && !(b->free)) {
+        last = b;
+        b = b->next;
+    }
+    return b;
+}
+
+t_block extend_heap(t_block last, size_t s) {
+    t_block b;
+    b = sbrk(0);
+    printf("%p\n",b);
+    if(sbrk(BLOCK_SIZE + s) == (void *)-1)
+        return NULL;
+    b->size = s;
+    b->next = NULL;
+    if(last)
+        last->next = b;
+    b->free = 1;
+    return b;
+}
+
+/* Initialize list */
+t_block init_block(void *first_block,size_t s,int num){
+    printf("0 num:%d\n",num);
+    char *p;
+    char *q;
+    p = (char*)malloc(10);
+    t_block b;
+    b = sbrk(0);
+    q = sbrk(256);
+    printf("b point to : %p\n", b);
+    printf("1\n");
+    if(sbrk(BLOCK_SIZE + s) == (void *)-1)
+      return NULL;
+    b->size = s;
+    b->next = NULL;
+    b->free = 1;
+    first_block = b;
+    printf("2\n");
+    t_block last;
+    int i;
+    printf("3\n");
+    for (i = 0; i < num; ++i)
+    {
+        printf("%d\n", i);
+        last = first_block;
+        while(last->next != NULL)
+            last = last->next;
+        t_block t;
+        t = extend_heap(last,s);
+        last->next = t;
+        //printf("size:%d,data:%s,padding:%d,free:%d\n",last->size,last->data,last->padding,last->free );
+    }
+    printf("4\n");
+    return first_block;
+}
+
+size_t align8(size_t s) {
+    if(s & 0x7 == 0)
+        return s;
+    return ((s >> 3) + 1) << 3;
+}
+
+void *mymalloc(size_t size) {
+    printf("mymalloc,size:%d\n",size);
+    void *first_block;
+    if(0 < size && size <= 16){
+        if(block_16)
+            first_block = block_16;
+        else{
+            block_16 = init_block(block_16, 16, 32);
+            first_block = block_16;
+        } 
+    }
+    else if(16 < size && size <= 64){
+        if(block_64)
+            first_block = block_64;
+        else{
+            block_64 = init_block(block_64, 64, 32);
+            first_block = block_64;
+        }
+    }
+    else if(64 < size && size <= 256){
+        if(block_256)
+            first_block = block_256;
+        else{
+            block_256 = init_block(block_256, 256, 32);
+            first_block = block_256;
+        }
+    }
+    else if(256 < size && size <= 1024){
+        if(block_1024)
+            first_block = block_1024;
+        else{
+            block_1024 = init_block(block_1024, 1024, 32);
+            first_block = block_1024;
+        } 
+    }
+    else if(1024 < size && size <= 4096){
+        if (block_4096)
+            first_block = block_4096;
+        else{
+            block_4096 = init_block(block_4096, 4096, 32);
+            first_block = block_4096;
+        }
+    }
+    else if(4096 < size && size <= 16384){
+        if (block_16384)
+            first_block = block_16384;
+        else{
+            block_16384 = init_block(block_16384, 16384, 32);
+            first_block = block_16384;
+        }
+    }
+    else
+        printf("the malloc is too big\n");
+    printf("malloc1\n");
+    t_block b, last;
+    last = first_block;
+    printf("last->free:%d,last->padding:%d\n",last->free,last->padding);
+    printf("last->next->free:%d,last->next->padding:%d\n",last->next->free,last->next->padding );
+    printf("malloc2\n");
+    b = find_block(last);
+    printf("malloc3\n");
+    if(b){
+        b->free = 0;
+        b->padding = 0x80000000;
+    }
+    else{
+        printf("can not malloc");
+        return NULL;
+    }
+    printf("free:%d,padding:%x\n", b->free,b->padding);
+    
+    printf("last->free:%d\n",last->free);
+
+    return b->data;
+}
+
+
+void myfree(void *p) {
+    t_block first_block;
+    if (p > block_16 && p < (block_16 + 32 * (BLOCK_SIZE + 16)))
+        first_block = block_16;
+    else if(p > block_64 && p < (block_64 + 32 * (BLOCK_SIZE + 64)))
+        first_block = block_64;
+    else if(p > block_256 && p < (block_256 + 32 * (BLOCK_SIZE + 256)))
+        first_block = block_256;
+    else if(p > block_1024 && p < (block_1024 + 32 * (BLOCK_SIZE + 1024)))
+        first_block = block_1024;
+    else if(p > block_4096 && p < (block_4096 + 32 * (BLOCK_SIZE + 4096)))
+        first_block = block_4096;
+    else if(p > block_16384 && p < (block_16384 + 32 * (BLOCK_SIZE + 16384)))
+        first_block = block_16384;
+    t_block b = first_block;
+    while(b){
+        if(b->data == (char*)p){
+            b->free = 1;
+            break;
+        }
+        b = b->next;
+    }
+}
