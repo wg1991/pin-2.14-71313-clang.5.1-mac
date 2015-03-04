@@ -1,42 +1,50 @@
 #include <stdlib.h>
 #include <math.h>
+#include <memory.h>
 #define BLOCK_SIZE 12 /* 由于存在虚拟的data字段，sizeof不能正确计算meta长度，这里手工设置 */
 
-b_link block = NULL;
 
+void *firstaddr = NULL;
+char blockmap[131072];
+typedef struct s_block *t_block;
 typedef struct block_link *b_link;
-{
+
+struct block_link {
     int block_size;
     void *block;
     b_link next;
 };
 
-typedef struct s_block *t_block;
+b_link block = NULL;
+
 struct s_block {
     int padding;  /* 填充4字节，保证meta块长度为8的倍数 */
     t_block next; /* 指向下个块的指针 */
 };
 
-int init_blink(b_link block){
-    for (int i = 4; i < 20; ++i)
+
+b_link init_blink(b_link t){
+    for (int i = 5; i < 20; ++i)
     {
+        printf("%d\n", i);
         b_link b;
-        b = (b_link)malloc(sizeof(block_link));
+        b = (b_link)malloc(sizeof(struct block_link));
         b->block_size = pow(2,i);
+        printf("blocksize:%d\n", b->block_size);
         b->next = NULL;
         b->block = NULL;
-        if (block == NULL)
-            block = b;
+        if (t == NULL)
+        {
+            t = b;
+            printf("%p,%p\n", t->block_size,t);
+        }
         else{
-            b_link tmp;
-            tmp = block;
-            while(tmp->next != NULL){
-                tmp = tmp->next;
-            }
-            tmp->next = b;
+            b->next = t;
+            t = b;
+            printf("%p,%p\n", t->block_size,t);
         }
     }
-    return 1;
+    return t;
 }
 
 /* First fit */
@@ -47,38 +55,40 @@ t_block find_block(t_block first) {
 }
 
 /* Initialize list */
-t_block init_block(void *first_block,size_t s){
-    printf("0 num:%d\n",num);
-    void *first_addr;
-    int i = (int)s/(64*1024);
-    first_addr = malloc(64*1024*i);
-
-    t_block b;
-    b = (t_block)first_addr;
-
-    if(sbrk(BLOCK_SIZE + s) == (void *)-1)
-      return NULL;
-    b->size = s;
-    b->next = NULL;
-    b->free = 1;
-    first_block = b;
-    printf("2\n");
-    t_block last;
-    int i;
-    printf("3\n");
-    for (i = 0; i < num; ++i)
+void init_block(void *first_block,size_t s){
+    if (firstaddr == NULL)
     {
-        printf("%d\n", i);
-        last = first_block;
-        while(last->next != NULL)
-            last = last->next;
-        t_block t;
-        t = extend_heap(last,s);
-        last->next = t;
-        //printf("size:%d,data:%s,padding:%d,free:%d\n",last->size,last->data,last->padding,last->free );
+        firstaddr = malloc(1024*1024*1024*4);
+        memset(blockmap,0,131072);
+        void *t;
+        firstaddr = (void*)((((unsigned long long)firstaddr>>16)+1)<<16);
     }
-    printf("4\n");
-    return first_block;
+    void *first_addr;
+    first_addr = firstaddr;
+    int i;
+    i = s/(64*1024) + 1;
+    while(i > 0){
+        firstaddr = firstaddr + 1024*64;
+        blockmap[((unsigned long long)first_addr) >> 16] = (char)(log(s)/log(2));
+        i--;
+    }
+
+    t_block last;
+    last = (t_block)first_addr;
+    for (int j = 0; j < s; j = j + 64*1024)
+    {
+        while(last < firstaddr){
+            t_block b;
+            b = last;
+            if (first_block == NULL)
+            {
+                first_block = b;   
+            }
+            last = last + s;
+            b->next = last;
+        }
+        
+    }
 }
 
 size_t align8(size_t s) {
@@ -90,25 +100,55 @@ size_t align8(size_t s) {
 
 void *mymalloc(size_t size) {
     printf("mymalloc,size:%d\n",size);
-    if (block == NULL)
-        if (!init_blink(block))
-            return NULL;
+    if (block == NULL){
+        printf("initblock\n");
+        for (int i = 5; i < 20; ++i)
+        {
+            b_link b;
+            b = (b_link)malloc(sizeof(struct block_link));
+            b->block_size = pow(2,i);
+            b->next = NULL;
+            b->block = NULL;
+            if (block == NULL)
+            {
+                block = b;
+            }
+            else{
+                b->next = block;
+                block = b;
+            }
+            printf("%p , %p\n", block,block->next);
+        }
+        b_link t;
+        t = block;
+        while(t->next != NULL){
+            printf("%d,%p\n", t->block_size,t);
+            t = t->next;
+        }
+        printf("init blink success\n");
+    }
     b_link cur;
     cur = block;
     void *first_block;
-    while(cur->next != NULL){
-        if (cur->size > size)
+    while(cur != NULL){
+        if (cur->next == NULL)
+        {
+            break;
+        }
+        if (cur->next->block_size < size)
             break;
         cur = cur->next;
     }
+    printf("cursize:%d\n", cur->block_size);
     if (cur->block == NULL)
     {
-        first_block = init_block(cur->block,cur->size);
+        init_block(cur->block,cur->block_size);
+        printf("init_block success\n");
     }
     else
         first_block = cur->block;
 
-    t_block b
+    t_block b;
 
     b = find_block(first_block);
 
@@ -117,25 +157,22 @@ void *mymalloc(size_t size) {
 
 
 void myfree(void *p) {
+    int blocksize;
+    blocksize = blockmap[((unsigned long long)p>>16)];
     t_block first_block;
-    if (p > block_16 && p < (block_16 + 32 * (BLOCK_SIZE + 16)))
-        first_block = block_16;
-    else if(p > block_64 && p < (block_64 + 32 * (BLOCK_SIZE + 64)))
-        first_block = block_64;
-    else if(p > block_256 && p < (block_256 + 32 * (BLOCK_SIZE + 256)))
-        first_block = block_256;
-    else if(p > block_1024 && p < (block_1024 + 32 * (BLOCK_SIZE + 1024)))
-        first_block = block_1024;
-    else if(p > block_4096 && p < (block_4096 + 32 * (BLOCK_SIZE + 4096)))
-        first_block = block_4096;
-    else if(p > block_16384 && p < (block_16384 + 32 * (BLOCK_SIZE + 16384)))
-        first_block = block_16384;
-    t_block b = first_block;
-    while(b){
-        if(b->data == (char*)p){
-            b->free = 1;
-            break;
+    b_link firstblock;
+    firstblock = block;
+    while(firstblock->next != NULL){
+        if (firstblock->block_size == blocksize)
+        {
+            first_block = firstblock->block;
+            while(first_block->next != NULL){
+                first_block = first_block->next; 
+            }
+            t_block b;
+            b = p - BLOCK_SIZE;
+            b->next = NULL;
+            first_block->next = b;
         }
-        b = b->next;
     }
 }
